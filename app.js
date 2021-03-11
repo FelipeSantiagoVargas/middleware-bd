@@ -10,25 +10,9 @@ const WRITE_LOG_BASH_PATH = "./scripts/write_log_file.sh"
 const EXECUTE_DOCKER_PATH = "./scripts/execute_docker.sh"
 const LOG_FILE_PATH = "./data/log_file.log"
 
-let cont = 1;
+var count = 1;
 
-setInterval(() => {
-  axios
-    .get(`http://localhost:${serverPort}/status`)
-    .then(function (response) {
-      cont = 0;
-    })
-    .catch(function (error) {
-      cont = cont+1;
-      if (cont == 5) {
-        writeLog("El servidor no respondió durante 5 segundos... Instanciando nuevo servidor")
-        executeNewInstance()
-        cont = 0
-      }
-      console.log("Servidor Caido");
-    })
-    .then(function () {});
-}, 1000);
+var beatInterval = createBeatInterval()
 
 app.use(express.json()); // for parsing application/json
 app.use(express.urlencoded({ extended: true })); // for parsing application/x-www-form-urlencoded
@@ -46,6 +30,10 @@ app.post("/addPrisioner", (req, res) => {
       res.json("La base de datos no pudo capturar el prisionero");
     });
 });
+
+app.get("/log", (req, res) => {
+  res.send(getLogData())
+})
 
 app.get("/prisioners", (req, res) => {
   axios
@@ -65,18 +53,51 @@ function writeFile(script_path, message){
   shelljs.exec(`sh ${script_path} ${message}`, {silent: true})
 }
 
+function getLogData(){
+  return shelljs.exec(`cat ${LOG_FILE_PATH}`, {silent: true}).stdout
+}
+
 function writeLog(info){
   let message = `"${info}" ${LOG_FILE_PATH}`
   writeFile(WRITE_LOG_BASH_PATH, message)
 }
 
+function createBeatInterval(){
+  return setInterval(() => {
+    axios
+      .get(`http://localhost:${serverPort}/status`)
+      .then(function (response) {
+        if(response.data === "OK"){
+          count = 0
+        }else{
+          count = count+1;
+          if (count == 5) {
+            writeLog("El servidor no respondió durante 5 segundos... Instanciando nuevo servidor")
+            executeNewInstance()
+            count = 0
+          }
+        }       
+      })
+      .catch(function (error) {
+        count = count+1;
+        if (count == 5) {
+          writeLog("El servidor no respondió durante 5 segundos... Instanciando nuevo servidor")
+          executeNewInstance()
+          count = 0
+        }
+      })
+  }, 1000)
+}
+
 function executeNewInstance(){
+  clearInterval(beatInterval)
   serverPort++
   mongoPort++
   shelljs.exec(`sh ${EXECUTE_DOCKER_PATH} ${serverPort} ${mongoPort}`)
   writeLog("Servidor instanciado")
+  beatInterval = createBeatInterval()
 }
 
 app.listen(port, () => {
-  console.log(`Example app listening at http://localhost:${port}`);
+  console.log(`Middleware corriendo en http://localhost:${port}`);
 });
